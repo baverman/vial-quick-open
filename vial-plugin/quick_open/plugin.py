@@ -4,7 +4,7 @@ import re
 from time import sleep
 
 from vial import vim
-from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf
+from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf, get_var
 from vial.events import Loop
 from vial.widgets import ListFormatter, ListView
 
@@ -53,7 +53,7 @@ class QuickOpen(object):
             self.win = vim.current.window
 
         vim.command('setlocal nobuflisted')
-        self.roots = [os.getcwd()]
+        self.roots = get_var('vial_quick_open_projects', [os.getcwd()])
 
         self.filelist.attach(self.buf, self.win)
 
