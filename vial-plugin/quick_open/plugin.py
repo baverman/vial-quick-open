@@ -3,8 +3,8 @@ import re
 
 from time import sleep
 
-from vial import vim
-from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf, get_var
+from vial import vim, vfunc
+from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf, get_var, focus_window
 from vial.events import Loop
 from vial.widgets import ListFormatter, ListView
 
@@ -28,6 +28,7 @@ class QuickOpen(object):
         self.filelist = ListView(ListFormatter(0, 0, 1, 1))
 
     def open(self):
+        self.last_window = vfunc.winnr()
         win, buf = get_winbuf('__vial_quick_open__')
         if win:
             self.win = win
@@ -64,6 +65,7 @@ class QuickOpen(object):
     def exit(self, select=False):
         cursor = self.win.cursor
         vim.command('close')
+        focus_window(self.last_window)
         if select:
             try:
                 fname = self.filelist.items[cursor[0] - 1][2]
