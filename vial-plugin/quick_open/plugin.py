@@ -5,7 +5,7 @@ from time import sleep
 
 from vial import vim, vfunc
 from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf, get_var, focus_window
-from vial.events import Loop
+from vial.loop import Loop
 from vial.widgets import ListFormatter, ListView
 
 from .. import quick_open as module

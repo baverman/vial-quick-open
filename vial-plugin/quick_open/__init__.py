@@ -1,6 +1,6 @@
-from vial import manager
+import vial
 from vial.utils import lfunc
 
 def init():
-    manager.register_command('VialQuickOpen', lfunc('.plugin.quick_open'))
+    vial.register_command('VialQuickOpen', lfunc('.plugin.quick_open'))
 
