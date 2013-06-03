@@ -34,7 +34,7 @@ class QuickOpen(object):
             self.win = win
             self.buf = buf
         else:
-            vim.command('botright split __vial_quick_open__')
+            vim.command('keepalt botright split __vial_quick_open__')
             if not buf:
                 self.loop = Loop(get_key_code('Plug') + 'l')
                 self.loop.on_key('CR', self.exit, True)
