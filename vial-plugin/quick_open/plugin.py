@@ -83,14 +83,7 @@ class QuickOpen(object):
 
     def move_cursor(self, dir):
         line, col = self.win.cursor
-        line += dir
-
-        if line < 1:
-            line = 1
-
-        if line > len(self.buf):
-            line = len(self.buf)
-
+        line = min(len(self.buf), max(1, line + dir))
         self.win.cursor = line, col
         self.loop.refresh()
 
