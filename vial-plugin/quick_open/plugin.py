@@ -1,12 +1,9 @@
 import os.path
 import re
 
-from time import sleep
-
 from vial import vim, vfunc
-from vial.utils import get_key, get_key_code, redraw, echo, get_winbuf, get_var, focus_window
-from vial.loop import Loop
-from vial.widgets import ListFormatter, ListView
+from vial.utils import get_var, focus_window
+from vial.widgets import ListFormatter, ListView, SearchDialog
 
 from .. import quick_open as module
 from . import search
@@ -22,92 +19,29 @@ def quick_open():
 
     module.dialog.open()
 
-class QuickOpen(object):
+class QuickOpen(SearchDialog):
     def __init__(self):
-        self.prompt = u''
-        self.filelist = ListView(ListFormatter(0, 0, 1, 1))
+        self.filelist = []
+        SearchDialog.__init__(self, '__vial_quick_open', 
+            ListView(self.filelist, ListFormatter(0, 0, 1, 1)))
 
     def open(self):
         self.last_window = vfunc.winnr()
-        win, buf = get_winbuf('__vial_quick_open__')
-        if win:
-            self.win = win
-            self.buf = buf
-        else:
-            if buf:
-                vim.command('keepalt botright sbuffer {}'.format(buf.number))
-            else:
-                vim.command('keepalt botright split __vial_quick_open__')
-                self.loop = Loop(get_key_code('Plug') + 'l')
-                self.loop.on_key('CR', self.exit, True)
-                self.loop.on_key('Esc', self.exit)
-                self.loop.on_key('Up', self.move_cursor, -1)
-                self.loop.on_key('C-K', self.move_cursor, -1)
-                self.loop.on_key('C-P', self.move_cursor, -1)
-                self.loop.on_key('Down', self.move_cursor, 1)
-                self.loop.on_key('C-J', self.move_cursor, 1)
-                self.loop.on_key('C-N', self.move_cursor, 1)
-                self.loop.on_key('BS', self.prompt_changed, None)
-                self.loop.on_printable(self.prompt_changed)
-
-                vim.command('setlocal buftype=nofile noswapfile nonumber colorcolumn=')
-                vim.command('noremap <buffer> <silent> <Plug>l '
-                    ':python vial.plugins.quick_open.dialog.loop.enter()<CR>')
-
-            self.buf = vim.current.buffer
-            self.win = vim.current.window
-
-        vim.command('setlocal nobuflisted')
         self.roots = get_var('vial_quick_open_projects', [os.getcwd()])
+        self.list_view.clear()
+        self.show(u'')
 
-        self.filelist.attach(self.buf, self.win)
-
-        self.prompt = u''
-        self.update_status()
-        self.loop.enter()
-
-    def exit(self, select=False):
-        cursor = self.win.cursor
-        vim.command('close')
+    def on_select(self, item, cursor):
         focus_window(self.last_window)
-        if select:
-            try:
-                fname = self.filelist.items[cursor[0] - 1][2]
-                vim.command('e {}'.format(fname))
-            except IndexError:
-                pass
+        vim.command('e {}'.format(item[2]))
 
-        redraw()
-        echo()
-        self.loop.exit()
+    def on_prompt_changed(self, prompt):
+        if prompt:
+            self.loop.idle(self.fill(prompt))
 
-    def move_cursor(self, dir):
-        line, col = self.win.cursor
-        line = min(len(self.buf), max(1, line + dir))
-        self.win.cursor = line, col
-        self.loop.refresh()
-
-    def prompt_changed(self, key):
-        if key is None:
-            self.prompt = self.prompt[:-1]
-        else:
-            self.prompt += key
-
-        self.update_status()
-        if self.prompt:
-            self.loop.idle(self.fill())
-
-    def update_status(self):
-        if not self.prompt:
-            vim.command('setlocal nocursorline')
-            self.buf[0:] = ['Type something to search']
-
-        redraw()
-        echo(u'>>> {}_'.format(self.prompt))
-
-    def fill(self):
+    def fill(self, prompt):
         current = self.current = object()
-        self.filelist.clear()
+        self.list_view.clear()
         last_index = 0
         cnt = 0
         already_matched = {}
@@ -118,7 +52,7 @@ class QuickOpen(object):
                 cache.append(r)
                 yield r
 
-        for m in search.get_matchers(self.prompt):
+        for m in search.get_matchers(prompt):
             for r in self.roots:
                 if r in file_cache:
                     flist = file_cache[r]
@@ -132,20 +66,17 @@ class QuickOpen(object):
 
                     if fpath not in already_matched and m(name, path):
                         already_matched[fpath] = True
-                        if len(already_matched) == 1:
-                            vim.command('setlocal cursorline')
+
                         self.filelist.append((name, top, fpath, root))
+                        if len(self.filelist) > 20:
+                            self.list_view.render()
+                            return
 
                     cnt += 1
                     if not cnt % 50:
-                        if self.filelist.render() > 20:
-                            self.loop.refresh()
-                            return
-
+                        self.list_view.render()
+                        self.loop.refresh()
                         yield
-                        
-        if not self.filelist.render():
-            vim.command('setlocal nocursorline')
-            self.buf[0:] = ['No matches']
 
-        self.loop.refresh()
+            self.list_view.render()
+
