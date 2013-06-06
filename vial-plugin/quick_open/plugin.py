@@ -30,14 +30,22 @@ class QuickOpen(SearchDialog):
         self.roots = get_var('vial_quick_open_projects', [os.getcwd()])
         self.list_view.clear()
         self.show(u'')
+        self.loop.enter()
 
     def on_select(self, item, cursor):
         focus_window(self.last_window)
         vim.command('e {}'.format(item[2]))
 
+    def on_cancel(self):
+        focus_window(self.last_window)
+
     def on_prompt_changed(self, prompt):
         if prompt:
             self.loop.idle(self.fill(prompt))
+        else:
+            self.list_view.show_cursor(False)
+            self.buf[0:] = ['Type something to search']
+            self.loop.refresh()
 
     def fill(self, prompt):
         current = self.current = object()
