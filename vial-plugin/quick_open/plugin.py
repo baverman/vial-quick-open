@@ -22,12 +22,12 @@ def quick_open():
 class QuickOpen(SearchDialog):
     def __init__(self):
         self.filelist = []
-        SearchDialog.__init__(self, '__vial_quick_open', 
+        SearchDialog.__init__(self, '__vial_quick_open__', 
             ListView(self.filelist, ListFormatter(0, 0, 1, 1)))
 
     def open(self):
         self.last_window = vfunc.winnr()
-        self.roots = get_var('vial_quick_open_projects', [os.getcwd()])
+        self.roots = get_var('vial_projects', [os.getcwd()])
         self.list_view.clear()
         self.show(u'')
         self.loop.enter()
