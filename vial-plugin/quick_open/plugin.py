@@ -5,19 +5,18 @@ from vial import vim, vfunc
 from vial.utils import get_var, focus_window
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
-from .. import quick_open as module
 from . import search
 
-module.dialog = None
+IGNORE_DIRS = ['^build$', '^dist$', '(^|.*/)__pycache__$', '.*\.egg-info$', '(^|.*/)\.']
+IGNORE_EXTENSIONS = ['pyc', 'pyo', 'swp', 'class', 'o']
 
-IGNORE_DIRS = re.compile(r'(^|.*/)(\.git|\.svn|\.hg)$')
-IGNORE_FILES = re.compile(r'^.*(\.pyc|\.pyo|\.swp|\.class|\.o)$')
-
+dialog = None
 def quick_open():
-    if not module.dialog:
-        module.dialog = QuickOpen()
+    global dialog
+    if not dialog:
+        dialog = QuickOpen()
 
-    module.dialog.open()
+    dialog.open()
 
 class QuickOpen(SearchDialog):
     def __init__(self):
@@ -25,7 +24,10 @@ class QuickOpen(SearchDialog):
         SearchDialog.__init__(self, '__vial_quick_open__', 
             ListView(self.filelist, ListFormatter(0, 0, 1, 1)))
 
+        self.cache = {}
+
     def open(self):
+        self.cache.clear()
         self.last_window = vfunc.winnr()
         self.roots = get_var('vial_projects', [os.getcwd()])
         self.list_view.clear()
@@ -47,6 +49,28 @@ class QuickOpen(SearchDialog):
             self.buf[0:] = ['Type something to search']
             self.loop.refresh()
 
+    def get_files(self, root):
+        try:
+            return self.cache[root]
+        except KeyError:
+            pass
+
+        ignore_files = re.compile('.*({})$'.format('|'.join(r'\.{}'.format(r)
+            for r in get_var('vial_ignore_extensions', IGNORE_EXTENSIONS))))
+
+        ignore_dirs = re.compile('({})'.format('|'.join(
+            get_var('vial_ignore_dirs', IGNORE_DIRS))))
+
+        cache = []
+        def filler():
+            for r in search.get_files(root, '', ignore_files, ignore_dirs):
+                cache.append(r)
+                yield r
+
+            self.cache[root] = cache
+        
+        return filler()
+
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
@@ -54,21 +78,9 @@ class QuickOpen(SearchDialog):
         cnt = 0
         already_matched = {}
 
-        file_cache = {}
-        def fill_cache(seq, cache):
-            for r in seq:
-                cache.append(r)
-                yield r
-
         for m in search.get_matchers(prompt):
             for r in self.roots:
-                if r in file_cache:
-                    flist = file_cache[r]
-                else:
-                    cache = file_cache[r] = []
-                    flist = fill_cache(search.get_files(r, '', IGNORE_FILES, IGNORE_DIRS), cache)
-
-                for name, path, root, top, fpath in flist:
+                for name, path, root, top, fpath in self.get_files(r):
                     if current is not self.current:
                         return
 
