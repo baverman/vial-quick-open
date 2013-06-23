@@ -2,10 +2,9 @@ import os.path
 import re
 
 from vial import vim, vfunc
+from vial.fsearch import get_files, get_matchers
 from vial.utils import get_var, get_dvar, focus_window
 from vial.widgets import ListFormatter, ListView, SearchDialog
-
-from . import search
 
 dialog = None
 def quick_open():
@@ -46,28 +45,6 @@ class QuickOpen(SearchDialog):
             self.buf[0:] = ['Type something to search']
             self.loop.refresh()
 
-    def get_files(self, root):
-        try:
-            return self.cache[root]
-        except KeyError:
-            pass
-
-        ignore_files = re.compile('.*({})$'.format('|'.join(r'\.{}'.format(r)
-            for r in get_dvar('vial_ignore_extensions'))))
-
-        ignore_dirs = re.compile('({})'.format('|'.join(
-            get_dvar('vial_ignore_dirs'))))
-
-        cache = []
-        def filler():
-            for r in search.get_files(root, '', ignore_files, ignore_dirs):
-                cache.append(r)
-                yield r
-
-            self.cache[root] = cache
-        
-        return filler()
-
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
@@ -75,9 +52,9 @@ class QuickOpen(SearchDialog):
         cnt = 0
         already_matched = {}
 
-        for m in search.get_matchers(prompt):
+        for m in get_matchers(prompt):
             for r in self.roots:
-                for name, path, root, top, fpath in self.get_files(r):
+                for name, path, root, top, fpath in get_files(r, self.cache):
                     if current is not self.current:
                         return
 
