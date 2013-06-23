@@ -3,7 +3,7 @@ import re
 
 from vial import vim, vfunc
 from vial.fsearch import get_files, get_matchers
-from vial.utils import get_var, get_dvar, focus_window
+from vial.utils import get_var, get_dvar, focus_window, get_projects
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 dialog = None
@@ -25,7 +25,7 @@ class QuickOpen(SearchDialog):
     def open(self):
         self.cache.clear()
         self.last_window = vfunc.winnr()
-        self.roots = get_var('vial_projects', [os.getcwd()])
+        self.roots = get_projects()
         self.list_view.clear()
         self.show(u'')
         self.loop.enter()
