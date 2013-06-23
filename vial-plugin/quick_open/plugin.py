@@ -2,13 +2,10 @@ import os.path
 import re
 
 from vial import vim, vfunc
-from vial.utils import get_var, focus_window
+from vial.utils import get_var, get_dvar, focus_window
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 from . import search
-
-IGNORE_DIRS = ['^build$', '^dist$', '(^|.*/)__pycache__$', '.*\.egg-info$', '(^|.*/)\.']
-IGNORE_EXTENSIONS = ['pyc', 'pyo', 'swp', 'class', 'o']
 
 dialog = None
 def quick_open():
@@ -56,10 +53,10 @@ class QuickOpen(SearchDialog):
             pass
 
         ignore_files = re.compile('.*({})$'.format('|'.join(r'\.{}'.format(r)
-            for r in get_var('vial_ignore_extensions', IGNORE_EXTENSIONS))))
+            for r in get_dvar('vial_ignore_extensions'))))
 
         ignore_dirs = re.compile('({})'.format('|'.join(
-            get_var('vial_ignore_dirs', IGNORE_DIRS))))
+            get_dvar('vial_ignore_dirs'))))
 
         cache = []
         def filler():
