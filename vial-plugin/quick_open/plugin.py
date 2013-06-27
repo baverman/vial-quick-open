@@ -52,7 +52,7 @@ class QuickOpen(SearchDialog):
         cnt = 0
         already_matched = {}
 
-        for m in get_matchers(prompt):
+        for m in get_matchers(prompt.encode('utf-8')):
             for r in self.roots:
                 for name, path, root, top, fpath in get_files(r, self.cache):
                     if current is not self.current:
