@@ -24,8 +24,9 @@ class QuickOpen(SearchDialog):
 
     def open(self):
         self.cache.clear()
+        self.cache['__buffer__'] = list(self.get_buffer_paths())
         self.last_window = vfunc.winnr()
-        self.roots = get_projects()
+        self.roots = ['__buffer__'] + list(get_projects())
         self.list_view.clear()
         self.show(u'')
         self.loop.enter()
@@ -45,6 +46,14 @@ class QuickOpen(SearchDialog):
             self.buf[0:] = ['Type something to search']
             self.loop.refresh()
 
+    def get_buffer_paths(self):
+        for b in vim.buffers:
+            if vfunc.getbufvar(b.number, '&buftype') != 'nofile':
+                fpath = b.name
+                path, name = os.path.split(fpath)
+                top = '__buffer__'
+                yield name, path, '__buffer__', '* ' + path, fpath
+                
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
