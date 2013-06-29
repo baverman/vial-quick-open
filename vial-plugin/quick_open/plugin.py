@@ -48,7 +48,7 @@ class QuickOpen(SearchDialog):
 
     def get_buffer_paths(self):
         for b in vim.buffers:
-            if vfunc.getbufvar(b.number, '&buftype') != 'nofile':
+            if b.name and vfunc.getbufvar(b.number, '&buftype') != 'nofile':
                 fpath = b.name
                 path, name = os.path.split(fpath)
                 top = '__buffer__'
