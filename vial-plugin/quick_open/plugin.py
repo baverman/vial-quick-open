@@ -1,9 +1,8 @@
 import os.path
-import re
 
 from vial import vim, vfunc
 from vial.fsearch import get_files, get_matchers
-from vial.utils import get_var, get_dvar, focus_window, get_projects
+from vial.utils import focus_window, get_projects
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 dialog = None
