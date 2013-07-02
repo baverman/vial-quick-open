@@ -2,7 +2,7 @@ import os.path
 
 from vial import vim, vfunc
 from vial.fsearch import get_files, get_matchers
-from vial.utils import focus_window, get_projects
+from vial.utils import focus_window, get_projects, buffer_with_file
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 dialog = None
@@ -47,7 +47,7 @@ class QuickOpen(SearchDialog):
 
     def get_buffer_paths(self):
         for b in vim.buffers:
-            if b.name and vfunc.getbufvar(b.number, '&buftype') != 'nofile':
+            if buffer_with_file(b):
                 fpath = b.name
                 path, name = os.path.split(fpath)
                 top = '__buffer__'
