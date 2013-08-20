@@ -32,6 +32,7 @@ class QuickOpen(SearchDialog):
 
     def on_select(self, item, cursor):
         focus_window(self.last_window)
+        vim.command('normal! m\'')
         vim.command('e {}'.format(item[2]))
 
     def on_cancel(self):
