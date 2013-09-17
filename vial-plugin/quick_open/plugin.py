@@ -2,7 +2,7 @@ import os.path
 
 from vial import vim, vfunc
 from vial.fsearch import get_files, get_matchers
-from vial.utils import focus_window, get_projects, buffer_with_file
+from vial.utils import focus_window, get_projects, buffer_with_file, mark
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 dialog = None
@@ -32,7 +32,7 @@ class QuickOpen(SearchDialog):
 
     def on_select(self, item, cursor):
         focus_window(self.last_window)
-        vim.command('normal! m\'')
+        mark()
         vim.command('e {}'.format(item[2]))
 
     def on_cancel(self):
