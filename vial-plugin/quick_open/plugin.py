@@ -5,6 +5,7 @@ from vial.fsearch import get_files, get_matchers
 from vial.utils import focus_window, get_projects, buffer_with_file, mark
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
+
 dialog = None
 def quick_open():
     global dialog
@@ -13,11 +14,12 @@ def quick_open():
 
     dialog.open()
 
+
 class QuickOpen(SearchDialog):
     def __init__(self):
         self.filelist = []
-        SearchDialog.__init__(self, '__vial_quick_open__', 
-            ListView(self.filelist, ListFormatter(0, 0, 1, 1)))
+        SearchDialog.__init__(self, '__vial_quick_open__',
+            ListView(self.filelist, ListFormatter(0, 0, 1, 1)), 'quick-open')
 
         self.cache = {}
 
@@ -53,7 +55,7 @@ class QuickOpen(SearchDialog):
                 path, name = os.path.split(fpath)
                 top = '__buffer__'
                 yield name, path, '__buffer__', '* ' + path, fpath
-                
+
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
