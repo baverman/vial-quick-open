@@ -12,17 +12,21 @@ class MatchTree(object):
     def __init__(self):
         self.files = []
         self.names = defaultdict(lambda: defaultdict(set))
+        self.parts = []
 
     def clear(self):
         self.files[:] = []
         self.names.clear()
+        self.parts[:] = []
 
     def extend(self, items):
         idx = len(self.files)
         for item in items:
             self.files.append(item)
             parts = item[1].split('/')
-            for i, p in enumerate(reversed(parts)):
+            parts.reverse()
+            self.parts.append(parts)
+            for i, p in enumerate(parts):
                 self.names[i][p].add(idx)
             idx += 1
 
@@ -43,26 +47,34 @@ class MatchTree(object):
                 yield files[idx]
             matched.update(indices)
 
-    def get_ifiles(self, matcher):
+    def get_indexes(self, matcher):
         matched = set()
         files = self.files
         for indices in matcher:
             for idx in indices - matched:
-                yield idx, files[idx]
+                yield idx
             matched.update(indices)
 
     def match_path(self, query):
         d, _, n = query.rpartition('/')
-        dd = '/' + d
-        for idx, item in self.get_ifiles(self.match_name(n)):
-            ipath = item[1]
-            if ipath.startswith(d) or dd in ipath:
-                yield set((idx,))
+        parts = self.parts
+        for level in range(1, 5):
+            for idx in self.get_indexes(self.match_name(n)):
+                try:
+                    part = parts[idx][level]
+                except IndexError:
+                    continue
+                if part.startswith(d):
+                    yield set((idx,))
 
-        for idx, item in self.get_ifiles(self.match_name(n)):
-            ipath = item[1]
-            if d in ipath:
-                yield set((idx,))
+        for level in range(1, 5):
+            for idx in self.get_indexes(self.match_name(n)):
+                try:
+                    part = parts[idx][level]
+                except IndexError:
+                    continue
+                if d in part:
+                    yield set((idx,))
 
     def match(self, query):
         if '/' in query:
