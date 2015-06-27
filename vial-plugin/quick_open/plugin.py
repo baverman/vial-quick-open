@@ -1,18 +1,74 @@
 import os.path
+from collections import defaultdict
+from itertools import islice
 
 from vial import vim, vfunc
-from vial.fsearch import get_files, get_matchers
-from vial.utils import focus_window, get_projects, buffer_with_file, mark
+from vial.fsearch import get_files
+from vial.utils import focus_window, get_projects, buffer_with_file, mark, single
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 
-dialog = None
-def quick_open():
-    global dialog
-    if not dialog:
-        dialog = QuickOpen()
+class MatchTree(object):
+    def __init__(self):
+        self.files = []
+        self.names = defaultdict(lambda: defaultdict(set))
 
-    dialog.open()
+    def clear(self):
+        self.files[:] = []
+        self.names.clear()
+
+    def extend(self, items):
+        idx = len(self.files)
+        for item in items:
+            self.files.append(item)
+            parts = item[1].split('/')
+            for i, p in enumerate(reversed(parts)):
+                self.names[i][p].add(idx)
+            idx += 1
+
+    def match_name(self, query):
+        for n, indices in self.names[0].iteritems():
+            if n.startswith(query):
+                yield indices
+
+        for n, indices in self.names[0].iteritems():
+            if query in n:
+                yield indices
+
+    def get_files(self, matcher):
+        matched = set()
+        files = self.files
+        for indices in matcher:
+            for idx in indices - matched:
+                yield files[idx]
+            matched.update(indices)
+
+    def get_ifiles(self, matcher):
+        matched = set()
+        files = self.files
+        for indices in matcher:
+            for idx in indices - matched:
+                yield idx, files[idx]
+            matched.update(indices)
+
+    def match_path(self, query):
+        d, _, n = query.rpartition('/')
+        dd = '/' + d
+        for idx, item in self.get_ifiles(self.match_name(n)):
+            ipath = item[1]
+            if ipath.startswith(d) or dd in ipath:
+                yield set((idx,))
+
+        for idx, item in self.get_ifiles(self.match_name(n)):
+            ipath = item[1]
+            if d in ipath:
+                yield set((idx,))
+
+    def match(self, query):
+        if '/' in query:
+            return self.get_files(self.match_path(query))
+        else:
+            return self.get_files(self.match_name(query))
 
 
 class QuickOpen(SearchDialog):
@@ -21,11 +77,13 @@ class QuickOpen(SearchDialog):
         SearchDialog.__init__(self, '__vial_quick_open__',
             ListView(self.filelist, ListFormatter(0, 0, 1, 1)), 'quick-open')
 
-        self.cache = {}
+        self.matcher = MatchTree()
+        self.file_iter_cache = {}
 
     def open(self):
-        self.cache.clear()
-        self.cache['__buffer__'] = list(self.get_buffer_paths())
+        self.matcher.clear()
+        self.file_iter_cache.clear()
+        self.matcher.extend(self.get_buffer_paths())
         self.last_window = vfunc.winnr()
         self.roots = ['__buffer__'] + list(get_projects())
         self.list_view.clear()
@@ -56,32 +114,37 @@ class QuickOpen(SearchDialog):
                 top = '__buffer__'
                 yield name, path, '__buffer__', '* ' + path, fpath
 
+    def get_file_iter(self, root):
+        try:
+            return self.file_iter_cache[root]
+        except KeyError:
+            result = self.file_iter_cache[root] = get_files(root)
+            return result
+
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
-        last_index = 0
-        cnt = 0
-        already_matched = {}
 
-        for m in get_matchers(prompt.encode('utf-8')):
-            for r in self.roots:
-                for name, path, root, top, fpath in get_files(r, self.cache):
-                    if current is not self.current:
-                        return
+        for r in self.roots:
+            filler = self.get_file_iter(r)
+            items = True
+            while items:
+                if current is not self.current:
+                    return
+                items = list(islice(filler, 50))
+                self.matcher.extend(items)
+                self.filelist[:] = []
+                result = list(islice(self.matcher.match(prompt), 20))
+                for name, _path, root, top, fpath in result:
+                    self.filelist.append((name, top, fpath, root))
 
-                    if fpath not in already_matched and m(name, path):
-                        already_matched[fpath] = True
+                self.list_view.render(True)
+                self.loop.refresh()
+                yield
 
-                        self.filelist.append((name, top, fpath, root))
-                        if len(self.filelist) > 20:
-                            self.list_view.render()
-                            return
+        self.list_view.render()
 
-                    cnt += 1
-                    if not cnt % 50:
-                        self.list_view.render()
-                        self.loop.refresh()
-                        yield
 
-            self.list_view.render()
-
+dialog = single(QuickOpen)
+def quick_open():
+    dialog().open()
