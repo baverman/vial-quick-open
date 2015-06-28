@@ -11,13 +11,11 @@ from vial.widgets import ListFormatter, ListView, SearchDialog
 class MatchTree(object):
     def __init__(self):
         self.files = []
-        self.names = defaultdict(lambda: defaultdict(set))
-        self.parts = []
+        self.names = defaultdict(lambda: defaultdict(list))
 
     def clear(self):
         self.files[:] = []
         self.names.clear()
-        self.parts[:] = []
 
     def extend(self, items):
         idx = len(self.files)
@@ -25,17 +23,19 @@ class MatchTree(object):
             self.files.append(item)
             parts = item[1].split('/')
             parts.reverse()
-            self.parts.append(parts)
             for i, p in enumerate(parts):
-                self.names[i][p].add(idx)
+                self.names[i][p].append(idx)
             idx += 1
 
-    def match_name(self, query):
-        for n, indices in self.names[0].iteritems():
+    def match_name(self, query, level=0):
+        if level not in self.names:
+            return
+
+        for n, indices in sorted(self.names[level].iteritems()):
             if n.startswith(query):
                 yield indices
 
-        for n, indices in self.names[0].iteritems():
+        for n, indices in sorted(self.names[level].iteritems()):
             if query in n:
                 yield indices
 
@@ -43,42 +43,28 @@ class MatchTree(object):
         matched = set()
         files = self.files
         for indices in matcher:
-            for idx in indices - matched:
+            for idx in (r for r in indices if r not in matched):
                 yield files[idx]
-            matched.update(indices)
-
-    def get_indexes(self, matcher):
-        matched = set()
-        files = self.files
-        for indices in matcher:
-            for idx in indices - matched:
-                yield idx
             matched.update(indices)
 
     def match_path(self, query):
         d, _, n = query.rpartition('/')
-        parts = self.parts
-        for level in range(1, 5):
-            for idx in self.get_indexes(self.match_name(n)):
-                try:
-                    part = parts[idx][level]
-                except IndexError:
-                    continue
-                if part.startswith(d):
-                    yield set((idx,))
+        def di():
+            for level in range(1, 5):
+                for r in self.match_name(d, level):
+                    yield r
 
-        for level in range(1, 5):
-            for idx in self.get_indexes(self.match_name(n)):
-                try:
-                    part = parts[idx][level]
-                except IndexError:
-                    continue
-                if d in part:
-                    yield set((idx,))
+        for item in self.get_files(di()):
+            if item[0].startswith(n):
+                yield item
+
+        for item in self.get_files(di()):
+            if n in item[0] and not item[0].startswith(n):
+                yield item
 
     def match(self, query):
         if '/' in query:
-            return self.get_files(self.match_path(query))
+            return self.match_path(query)
         else:
             return self.get_files(self.match_name(query))
 
