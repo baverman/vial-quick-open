@@ -1,6 +1,9 @@
+import re
 import os.path
+
 from collections import defaultdict
 from itertools import islice
+from cStringIO import StringIO
 
 from vial import vim, vfunc
 from vial.fsearch import get_files
@@ -12,10 +15,13 @@ class MatchTree(object):
     def __init__(self):
         self.files = []
         self.names = defaultdict(lambda: defaultdict(list))
+        self.nbuf = StringIO()
 
     def clear(self):
         self.files[:] = []
         self.names.clear()
+        self.nbuf.close()
+        self.nbuf = StringIO()
 
     def extend(self, items):
         idx = len(self.files)
@@ -25,9 +31,20 @@ class MatchTree(object):
             parts.reverse()
             for i, p in enumerate(parts):
                 self.names[i][p].append(idx)
+
+            self.nbuf.write('{}/{}\n'.format(idx, parts[0]))
             idx += 1
 
-    def match_name(self, query, level=0):
+    def match_name(self, query):
+        content = self.nbuf.getvalue()
+        if not content:
+            return
+        regex = r'(?m)^(\d+)/{}'.format(re.escape(query))
+        yield [int(m) for m in re.findall(regex, content)]
+        regex = r'(?m)^(\d+).*{}.*$'.format(re.escape(query))
+        yield [int(m) for m in re.findall(regex, content)]
+
+    def match_part(self, query, level=0):
         if level not in self.names:
             return
 
@@ -51,7 +68,7 @@ class MatchTree(object):
         d, _, n = query.rpartition('/')
         def di():
             for level in range(1, 5):
-                for r in self.match_name(d, level):
+                for r in self.match_part(d, level):
                     yield r
 
         for item in self.get_files(di()):
