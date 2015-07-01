@@ -86,6 +86,18 @@ class MatchTree(object):
             return self.get_files(self.match_name(query))
 
 
+def strip_project_path(path, projects, keep_top):
+    for p in projects:
+        if path.startswith(p + os.sep):
+            if keep_top:
+                return os.path.join(os.path.basename(p),
+                                    path[len(p):].lstrip(os.sep))
+            else:
+                return path[len(p):].lstrip(os.sep)
+
+    return path
+
+
 class QuickOpen(SearchDialog):
     def __init__(self):
         self.filelist = []
@@ -93,14 +105,16 @@ class QuickOpen(SearchDialog):
             ListView(self.filelist, ListFormatter(0, 0, 1, 1)), 'quick-open')
 
         self.matcher = MatchTree()
+        self.bmatcher = MatchTree()
         self.file_iter_cache = {}
 
     def open(self):
         self.matcher.clear()
+        self.bmatcher.clear()
         self.file_iter_cache.clear()
-        self.matcher.extend(self.get_buffer_paths())
+        self.bmatcher.extend(self.get_buffer_paths())
         self.last_window = vfunc.winnr()
-        self.roots = ['__buffer__'] + list(get_projects())
+        self.roots = get_projects()
         self.list_view.clear()
         self.show(u'')
         self.loop.enter()
@@ -122,23 +136,32 @@ class QuickOpen(SearchDialog):
             self.loop.refresh()
 
     def get_buffer_paths(self):
+        projects = get_projects()
+        multiple_projects = len(projects)
         for b in vim.buffers:
             if buffer_with_file(b):
                 fpath = b.name
-                path, name = os.path.split(fpath)
-                top = '__buffer__'
-                yield name, path, '__buffer__', '* ' + path, fpath
+                spath = strip_project_path(fpath, projects, multiple_projects)
+                path, name = os.path.split(spath)
+                yield (name, spath, '__buffer__',
+                       '* ' + path, fpath)
 
     def get_file_iter(self, root):
         try:
             return self.file_iter_cache[root]
         except KeyError:
-            result = self.file_iter_cache[root] = get_files(root)
+            result = get_files(root, keep_top=len(get_projects()))
+            self.file_iter_cache[root] = result
             return result
 
     def fill(self, prompt):
         current = self.current = object()
         self.list_view.clear()
+
+        bfilelist = [(name, top, fpath, root)
+                     for name, _, root, top, fpath
+                     in self.bmatcher.match(prompt)]
+        bfiles = set(r[2] for r in bfilelist)
 
         for r in self.roots:
             filler = self.get_file_iter(r)
@@ -148,10 +171,11 @@ class QuickOpen(SearchDialog):
                     return
                 items = list(islice(filler, 50))
                 self.matcher.extend(items)
-                self.filelist[:] = []
+                self.filelist[:] = bfilelist
                 result = list(islice(self.matcher.match(prompt), 20))
                 for name, _path, root, top, fpath in result:
-                    self.filelist.append((name, top, fpath, root))
+                    if fpath not in bfiles:
+                        self.filelist.append((name, top, fpath, root))
 
                 self.list_view.render(True)
                 self.loop.refresh()
