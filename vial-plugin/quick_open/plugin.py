@@ -137,7 +137,7 @@ class QuickOpen(SearchDialog):
 
     def get_buffer_paths(self):
         projects = get_projects()
-        multiple_projects = len(projects)
+        multiple_projects = len(projects) > 1
         for b in vim.buffers:
             if buffer_with_file(b):
                 fpath = b.name
@@ -150,7 +150,7 @@ class QuickOpen(SearchDialog):
         try:
             return self.file_iter_cache[root]
         except KeyError:
-            result = get_files(root, keep_top=len(get_projects()))
+            result = get_files(root, keep_top=len(get_projects()) > 1)
             self.file_iter_cache[root] = result
             return result
 
