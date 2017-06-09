@@ -1,9 +1,9 @@
 import re
 import os.path
 
-from collections import defaultdict
 from itertools import islice
-from cStringIO import StringIO
+from bisect import insort
+from heapq import merge
 
 from vial import vim, vfunc
 from vial.fsearch import get_files
@@ -13,77 +13,83 @@ from vial.widgets import ListFormatter, ListView, SearchDialog
 
 class MatchTree(object):
     def __init__(self):
-        self.files = []
-        self.names = defaultdict(lambda: defaultdict(list))
-        self.nbuf = StringIO()
+        self.names = {}
+        self.nbuf = ''
 
     def clear(self):
-        self.files[:] = []
         self.names.clear()
-        self.nbuf.close()
-        self.nbuf = StringIO()
+        self.nbuf = ''
 
     def extend(self, items):
-        idx = len(self.files)
         for item in items:
-            self.files.append(item)
-            parts = item[1].split('/')
+            fname = item[1]
+            parts = fname.split('/')
             parts.reverse()
             for i, p in enumerate(parts):
-                self.names[i][p].append(idx)
+                insort(self.names.setdefault(p, []), (i, len(fname), fname, item))
+        self.nbuf = '\n'.join(self.names)
 
-            self.nbuf.write('{}/{}\n'.format(idx, parts[0]))
-            idx += 1
-
-    def match_name(self, query):
-        content = self.nbuf.getvalue()
+    def get_matches(self, query):
+        content = self.nbuf
         if not content:
             return
-        regex = r'(?m)^(\d+)/{}'.format(re.escape(query))
-        yield [int(m) for m in re.findall(regex, content)]
-        regex = r'(?m)^(\d+).*{}.*$'.format(re.escape(query))
-        yield [int(m) for m in re.findall(regex, content)]
+        regex = r'(?m)^({0}.*)|(.*{0}.*)$'.format(re.escape(query))
+        matches = re.findall(regex, content)
+        yield [self.names[r] for r, _ in matches if r]
+        yield [self.names[r] for _, r in matches if r]
 
-    def match_part(self, query, level=0):
-        if level not in self.names:
-            return
-
-        for n, indices in sorted(self.names[level].iteritems()):
-            if n.startswith(query):
-                yield indices
-
-        for n, indices in sorted(self.names[level].iteritems()):
-            if query in n:
-                yield indices
-
-    def get_files(self, matcher):
+    def get_files(self, matches):
         matched = set()
-        files = self.files
-        for indices in matcher:
-            for idx in (r for r in indices if r not in matched):
-                yield files[idx]
-            matched.update(indices)
-
-    def match_path(self, query):
-        d, _, n = query.rpartition('/')
-        def di():
-            for level in range(1, 5):
-                for r in self.match_part(d, level):
-                    yield r
-
-        for item in self.get_files(di()):
-            if item[0].startswith(n):
+        for _, _, fname, item in matches:
+            if fname not in matched:
                 yield item
+                matched.add(fname)
 
-        for item in self.get_files(di()):
-            if n in item[0] and not item[0].startswith(n):
-                yield item
+    def filter_idx(self, matches, idx):
+        return (r for r in matches if r[0] >= idx)
+
+    def filter_by_stream(self, matches, stream):
+        fnames = {}
+        for idx, fl, fname, item in matches:
+            if fname in fnames:
+                yield (fnames[fname], fl, fname, item)
+            elif stream:
+                for sit in stream:
+                    sfname = sit[2]
+                    sidx = sit[0]
+
+                    if sidx <= idx:
+                        continue
+
+                    fnames[sfname] = sidx
+                    if fname == sfname:
+                        yield sit
+                        break
+                else:
+                    stream = None
+
+    def chain_matches(self, all_matches):
+        for matches in all_matches:
+            for r in merge(*matches):
+                yield r
 
     def match(self, query):
-        if '/' in query:
-            return self.match_path(query)
+        parts = (query or '').replace('//', '/').lstrip('/').split('/')
+        parts.reverse()
+        count = len(parts)
+        if count == 1:
+            return self.get_files(self.chain_matches(self.get_matches(parts[0])))
+        elif count > 1:
+            initial = parts[0] and self.chain_matches(self.get_matches(parts[0])) or None
+            for offset, part in enumerate(parts[1:], 1):
+                stream = self.filter_idx(self.chain_matches(self.get_matches(part)), offset)
+                if initial:
+                    initial = self.filter_by_stream(initial, stream)
+                else:
+                    initial = stream
+            return self.get_files(initial)
         else:
-            return self.get_files(self.match_name(query))
+            return self.get_files([])
 
 
 def strip_project_path(path, projects, keep_top):
