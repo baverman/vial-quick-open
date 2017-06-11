@@ -7,13 +7,14 @@ from heapq import merge
 
 from vial import vim, vfunc
 from vial.fsearch import get_files
-from vial.utils import focus_window, get_projects, buffer_with_file, mark, single
+from vial.utils import focus_window, get_projects, buffer_with_file, mark, single, echom
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 
 class MatchTree(object):
     def __init__(self):
         self.names = {}
+        self.unsorted = set()
         self.nbuf = ''
 
     def clear(self):
@@ -21,22 +22,31 @@ class MatchTree(object):
         self.nbuf = ''
 
     def extend(self, items):
+        sd = self.names.setdefault
         for item in items:
             fname = item[1]
             parts = fname.split('/')
-            parts.reverse()
-            for i, p in enumerate(parts):
-                insort(self.names.setdefault(p, []), (i, len(fname), fname, item))
+            c = len(parts)
+            for i, p in enumerate(parts, 1):
+                sd(p, []).append((c - i, c, fname, item))
+
         self.nbuf = '\n'.join(self.names)
+        self.unsorted.update(self.names)
+
+    def get_names(self, names):
+        to_sort = self.unsorted.intersection(names)
+        for r in to_sort:
+            self.names[r].sort()
+        self.unsorted.difference_update(to_sort)
+        return [self.names[r] for r in names]
 
     def get_matches(self, query):
-        content = self.nbuf
-        if not content:
+        if not self.nbuf:
             return
         regex = r'(?m)^({0}.*)|(.*{0}.*)$'.format(re.escape(query))
-        matches = re.findall(regex, content)
-        yield [self.names[r] for r, _ in matches if r]
-        yield [self.names[r] for _, r in matches if r]
+        matches = re.findall(regex, self.nbuf)
+        yield self.get_names([r for r, _ in matches if r])
+        yield self.get_names([r for _, r in matches if r])
 
     def get_files(self, matches):
         matched = set()
@@ -61,7 +71,7 @@ class MatchTree(object):
                     if sidx <= idx:
                         continue
 
-                    fnames[sfname] = sidx
+                    fnames.setdefault(sfname, sidx)
                     if fname == sfname:
                         yield sit
                         break
