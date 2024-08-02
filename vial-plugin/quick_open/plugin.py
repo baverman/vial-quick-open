@@ -1,37 +1,46 @@
 import re
 import os.path
 
+from collections import defaultdict
 from itertools import islice
-from bisect import insort
-from heapq import merge
 
 from vial import vim, vfunc
 from vial.fsearch import get_files
-from vial.utils import focus_window, get_projects, buffer_with_file, mark, single, echom
+from vial.utils import focus_window, get_projects, buffer_with_file, mark, single
 from vial.widgets import ListFormatter, ListView, SearchDialog
 
 
-class MatchTree(object):
-    def __init__(self):
+class NameBuffer:
+    def __init__(self, items):
+        self.files = {}
         self.names = {}
+        self.nbuf = None
         self.unsorted = set()
-        self.nbuf = ''
+        self.append(items)
 
-    def clear(self):
-        self.names.clear()
-        self.nbuf = ''
+    def merge(self, nb):
+        self.nbuf = None
 
-    def extend(self, items):
+        for k, v in nb.files.items():
+            self.files.setdefault(k, []).extend(v)
+
+        self.unsorted.update(nb.names)
+        for k, v in nb.names.items():
+            self.names.setdefault(k, []).extend(v)
+
+    def append(self, items):
         sd = self.names.setdefault
+        added = set()
         for item in items:
             fname = item[1]
+            self.files.setdefault(fname, []).append(item)
             parts = fname.split('/')
             c = len(parts)
             for i, p in enumerate(parts, 1):
+                added.add(p)
                 sd(p, []).append((c - i, c, fname, item))
 
-        self.nbuf = '\n'.join(self.names)
-        self.unsorted.update(self.names)
+        self.unsorted.update(added)
 
     def get_names(self, names):
         to_sort = self.unsorted.intersection(names)
@@ -41,65 +50,111 @@ class MatchTree(object):
         return [self.names[r] for r in names]
 
     def get_matches(self, query):
-        if not self.nbuf:
-            return
+        if self.nbuf is None:
+            self.nbuf = '\n' + '\n'.join(self.names)
+
         regex = r'(?m)^({0}.*)|(.*{0}.*)$'.format(re.escape(query))
         matches = re.findall(regex, self.nbuf)
         yield self.get_names([r for r, _ in matches if r])
         yield self.get_names([r for _, r in matches if r])
 
-    def get_files(self, matches):
-        matched = set()
-        for _, _, fname, item in matches:
-            if fname not in matched:
-                yield item
-                matched.add(fname)
+    def get_items(self, fnames):
+        result = []
+        for it in fnames:
+            result.extend(self.files.get(it, []))
+        return result
 
-    def filter_idx(self, matches, idx):
-        return (r for r in matches if r[0] >= idx)
 
-    def filter_by_stream(self, matches, stream):
-        fnames = {}
-        for idx, fl, fname, item in matches:
-            if fname in fnames:
-                yield (fnames[fname], fl, fname, item)
-            elif stream:
-                for sit in stream:
-                    sfname = sit[2]
-                    sidx = sit[0]
+class Searcher:
+    def __init__(self, query):
+        self.parts = (query or '').replace('//', '/').lstrip('/').split('/')
+        self.parts.reverse()
+        self.matches = {p: set() for p in self.parts}
+        self.ranks = {p: {} for p in self.parts}
+        self.order = defaultdict(int)
+        self.buffers = []
+        self._work_iter = self._work()
+        self.done = False
 
-                    if sidx <= idx:
-                        continue
+    def _work(self):
+        count = 0
+        while True:
+            if not self.buffers:
+                self.done = True
+                yield
+                continue
 
-                    fnames.setdefault(sfname, sidx)
-                    if fname == sfname:
-                        yield sit
-                        break
-                else:
-                    stream = None
+            nb = self.buffers.pop()
 
-    def chain_matches(self, all_matches):
-        for matches in all_matches:
-            for r in merge(*matches):
-                yield r
+            for offset, part in enumerate(self.parts):
+                empu = self.matches[part].update
+                rpe = self.ranks[part]
+                for mg in nb.get_matches(part):
+                    for m in mg:
+                        items = [it for it in m if it[0] >= offset]
+                        count += len(m)
+                        empu(it[2] for it in items)
+                        for it in items:
+                            fname = it[2]
+                            if fname not in rpe:
+                                rpe[fname] = it[0]
+                                self.order[fname] += it[0]
 
-    def match(self, query):
-        parts = (query or '').replace('//', '/').lstrip('/').split('/')
-        parts.reverse()
-        count = len(parts)
-        if count == 1:
-            return self.get_files(self.chain_matches(self.get_matches(parts[0])))
-        elif count > 1:
-            initial = parts[0] and self.chain_matches(self.get_matches(parts[0])) or None
-            for offset, part in enumerate(parts[1:], 1):
-                stream = self.filter_idx(self.chain_matches(self.get_matches(part)), offset)
-                if initial:
-                    initial = self.filter_by_stream(initial, stream)
-                else:
-                    initial = stream
-            return self.get_files(initial)
-        else:
-            return self.get_files([])
+                        if count > 100:
+                            count = 0
+                            yield
+
+    def refine(self, nb):
+        self.buffers.append(nb)
+        self.done = False
+
+    def result(self, limit=100):
+        next(self._work_iter, None)
+
+        f = None
+        for part in self.parts:
+            d = self.matches.get(part, set())
+            if f is None:
+                f = d
+            else:
+                f = f & d
+
+        if len(f) > limit:
+            f = list(f)[:limit]
+
+        ordfn = self.order.get
+        return sorted(f, key=lambda r: (ordfn(r), r))
+
+
+class Matcher:
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.name_buffer = NameBuffer([])
+        self.searcher = None
+
+    def set_query(self, query):
+        self.searcher = Searcher(query)
+        self.searcher.refine(self.name_buffer)
+
+    def append(self, items):
+        if not items:
+            return
+        nb = NameBuffer(items)
+        self.name_buffer.merge(nb)
+        if self.searcher:
+            self.searcher.refine(nb)
+
+    def result(self, limit=100):
+        if not self.searcher:
+            return []
+        fnames = self.searcher.result(limit)
+        return self.name_buffer.get_items(fnames)
+
+    @property
+    def done(self):
+        return self.searcher and self.searcher.done
 
 
 def strip_project_path(path, projects, keep_top):
@@ -120,15 +175,15 @@ class QuickOpen(SearchDialog):
         SearchDialog.__init__(self, '__vial_quick_open__',
             ListView(self.filelist, ListFormatter(0, 0, 1, 1)), 'quick-open')
 
-        self.matcher = MatchTree()
-        self.bmatcher = MatchTree()
+        self.matcher = Matcher()
+        self.bmatcher = Matcher()
         self.file_iter_cache = {}
 
     def open(self):
         self.matcher.clear()
         self.bmatcher.clear()
+        self.bmatcher.append(self.get_buffer_paths())
         self.file_iter_cache.clear()
-        self.bmatcher.extend(self.get_buffer_paths())
         self.last_window = vfunc.winnr()
         self.roots = get_projects()
         self.list_view.clear()
@@ -145,7 +200,9 @@ class QuickOpen(SearchDialog):
 
     def on_prompt_changed(self, prompt):
         if prompt:
-            self.loop.idle(self.fill(prompt))
+            self.bmatcher.set_query(prompt)
+            self.matcher.set_query(prompt)
+            self.loop.idle(self.fill())
         else:
             self.list_view.show_cursor(False)
             self.buf[0:] = ['Type something to search']
@@ -170,29 +227,30 @@ class QuickOpen(SearchDialog):
             self.file_iter_cache[root] = result
             return result
 
-    def fill(self, prompt):
+    def fill(self):
         current = self.current = object()
         self.list_view.clear()
 
         bfilelist = [(name, top, fpath, root)
                      for name, _, root, top, fpath
-                     in self.bmatcher.match(prompt)]
+                     in self.bmatcher.result()]
         bfiles = set(r[2] for r in bfilelist)
 
         for r in self.roots:
             filler = self.get_file_iter(r)
             items = True
-            while items:
+            while items or not self.matcher.done:
                 if current is not self.current:
                     return
                 items = list(islice(filler, 50))
-                self.matcher.extend(items)
+                self.matcher.append(items)
                 self.filelist[:] = bfilelist
-                result = list(islice(self.matcher.match(prompt), 20))
+                result = self.matcher.result()[:20]
                 for name, _path, root, top, fpath in result:
                     if fpath not in bfiles:
                         self.filelist.append((name, top, fpath, root))
 
+                self.win.options['statusline'] = f'quick-open: {len(self.matcher.name_buffer.files)}'
                 self.list_view.render(True)
                 self.loop.refresh()
                 yield
